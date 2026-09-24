@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crew Connect — Campus Volunteer Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Black&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Archivo', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #F3F1EC;
+      color: #111111;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: inherit; text-decoration: none; }
+    button, input, select, textarea {
+      font-family: inherit;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #E5E2D9; }
+    ::-webkit-scrollbar-thumb { background: #111111; }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #111111;
+      color: #FFFFFF;
+      padding: 14px 22px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      display: none;
+      z-index: 9999;
+      border-left: 4px solid #D6202F;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      max-width: 400px;
+    }
+
+    /* Modal Backdrop */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+
+    /* Header Nav Tabs */
+    .nav-tab {
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      padding-bottom: 24px;
+      border-bottom: 2px solid transparent;
+      color: #9C9A93;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.15s ease;
+    }
+    .nav-tab:hover {
+      color: #FFFFFF;
+    }
+    .nav-tab.active {
+      color: #FFFFFF;
+      border-bottom: 2px solid #D6202F;
+    }
+
+    .badge-pill {
+      display: inline-block;
+      padding: 3px 9px;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Toast Notification Container -->
+  <div id="toast"></div>
+
+  <!-- APPLICATION CONTAINER -->
+  <div id="app" style="width: 100%; min-height: 100vh; display: flex; flex-direction: column;"></div>
+
+  <script>
+    // Global State
+    const state = {
+      currentUser: null,
+      currentView: 'opportunities', // 'login', 'register', 'opportunities', 'my-registrations', 'admin-new-opportunity', 'admin-volunteers'
+      opportunities: [],
+      myRegistrations: [],
+      clubs: [],
+      events: [],
+      selectedOpportunity: null,
+      filters: {
+        location: '',
+        status: 'ALL',
+        upcoming: true
+      },
+      isLoading: false
+    };
+
+    // Helper: Show Toast
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.borderLeftColor = isError ? '#D6202F' : '#1F6F3D';
+      toast.style.display = 'block';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 4000);
+    }
+
+    // Helper: API Request
+    async function apiRequest(endpoint, options = {}) {
+      try {
+        const defaultHeaders = { 'Content-Type': 'application/json' };
+        if (state.token) {
+          defaultHeaders['Authorization'] = `Bearer ${state.token}`;
+        }
+
+        const res = await fetch(`/api/v1${endpoint}`, {
+          ...options,
+          headers: {
+            ...defaultHeaders,
+            ...(options.headers || {})
+          },
+          credentials: 'include'
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/vnd.openxmlformats-officedocument')) {
+          return await res.blob();
+        }
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw data.error || { message: 'An error occurred' };
+        }
+        return data;
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Auth: Check Current Session
+    async function checkAuth() {
+      try {
+        const res = await apiRequest('/auth/me');
+        if (res && res.success && res.data) {
+          state.currentUser = res.data;
+          if (state.currentView === 'login' || state.currentView === 'register') {
+            state.currentView = 'opportunities';
+          }
+        }
+      } catch (err) {
+        state.currentUser = null;
+        state.currentView = 'login';
+      }
+      render();
+    }
+
+    // Auth: Login
+    async function handleLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      try {
+        const res = await apiRequest('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password })
+        });
+        state.currentUser = res.data.user;
+        state.token = res.data.token;
+        showToast(`Welcome back, ${res.data.user.name}!`);
+        state.currentView = 'opportunities';
+        render();
+        loadOpportunities();
+      } catch (err) {
+        showToast(err.message || 'Login failed', true);
+      }
+    }
+
+    // Auth: Register
+    async function handleRegister(e) {
+      e.preventDefault();
+      const name = document.getElementById('reg-name').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const phone = document.getElementById('reg-phone').value.trim();
+      const branch = document.getElementById('reg-branch').value.trim();
+      const section = document.getElementById('reg-section').value.trim();
+      const yearOfStudy = parseInt(document.getElementById('reg-year').value, 10);
+
+      try {
+        const res = await apiRequest('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ name, email, password, phone, branch, section, yearOfStudy })
+        });
+        state.currentUser = res.data.user;
+        state.token = res.data.token;
+        showToast('Registration successful! Welcome to Crew Connect.');
+        state.currentView = 'opportunities';
+        render();
+        loadOpportunities();
+      } catch (err) {
+        showToast(err.message || 'Registration failed', true);
+      }
+    }
+
+    // Auth: Logout
+    async function handleLogout() {
+      try {
+        await apiRequest('/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      state.currentUser = null;
+      state.token = null;
+      state.currentView = 'login';
+      showToast('Logged out successfully.');
+      render();
+    }
+
+    // Opportunities: Load
+    async function loadOpportunities() {
+      try {
+        state.isLoading = true;
+        let query = `/opportunities?limit=50`;
+        if (state.filters.status !== 'ALL') {
+          query += `&status=${state.filters.status}`;
+        }
+        if (state.filters.upcoming) {
+          query += `&upcoming=true`;
+        }
+        const res = await apiRequest(query);
+        let list = res.data.opportunities || [];
+        if (state.filters.location) {
+          const loc = state.filters.location.toLowerCase();
+          list = list.filter(o => o.location && o.location.toLowerCase().includes(loc));
+        }
+        state.opportunities = list;
+      } catch (err) {
+        showToast(err.message || 'Failed to load opportunities', true);
+      } finally {
+        state.isLoading = false;
+        render();
+      }
+    }
+
+    // Registrations: Load User History
+    async function loadMyRegistrations() {
+      try {
+        state.isLoading = true;
+        const res = await apiRequest('/registrations/me');
+        state.myRegistrations = res.data || [];
+      } catch (err) {
+        showToast(err.message || 'Failed to load your registrations', true);
+      } finally {
+        state.isLoading = false;
+        render();
+      }
+    }
+
+    // Clubs & Events: Load for Admin
+    async function loadClubsAndEvents() {
+      try {
+        const [cRes, eRes] = await Promise.all([
+          apiRequest('/clubs'),
+          apiRequest('/events')
+        ]);
+        state.clubs = cRes.data || [];
+        state.events = eRes.data || [];
+      } catch (err) {}
+    }
+
+    // Action: Register for Opportunity
+    async function handleRegisterOpportunity(opportunityId) {
+      try {
+        const res = await apiRequest(`/opportunities/${opportunityId}/register`, {
+          method: 'POST'
+        });
+        showToast('Successfully registered for shift!');
+        state.selectedOpportunity = null;
+        loadOpportunities();
+      } catch (err) {
+        showToast(`Registration failed: ${err.message}`, true);
+      }
+    }
+
+    // Action: Withdraw Registration
+    async function handleWithdrawRegistration(registrationId) {
+      if (!confirm('Are you sure you want to withdraw from this opportunity?')) return;
+      try {
+        await apiRequest(`/registrations/${registrationId}/withdraw`, {
+          method: 'PATCH'
+        });
+        showToast('Successfully withdrawn.');
+        loadMyRegistrations();
+      } catch (err) {
+        showToast(err.message || 'Withdrawal failed', true);
+      }
+    }
+
+    // Action: Admin Soft-Cancel Opportunity
+    async function handleCancelOpportunity(opportunityId) {
+      if (!confirm('Cancel this opportunity? This will reset slots and bulk-withdraw registered volunteers.')) return;
+      try {
+        await apiRequest(`/opportunities/${opportunityId}`, {
+          method: 'DELETE'
+        });
+        showToast('Opportunity cancelled successfully.');
+        loadOpportunities();
+      } catch (err) {
+        showToast(err.message || 'Cancel failed', true);
+      }
+    }
+
+    // Action: Admin Download Excel
+    async function handleDownloadExcel(opportunityId, oppTitle) {
+      try {
+        showToast('Generating Excel volunteer roster...');
+        const blob = await apiRequest(`/opportunities/${opportunityId}/volunteers/export`);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `volunteers-${oppTitle.replace(/\s+/g, '_')}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        showToast('Excel roster downloaded successfully!');
+      } catch (err) {
+        showToast(err.message || 'Failed to export Excel roster', true);
+      }
+    }
+
+    // Format Date helper
+    function formatDate(dateString) {
+      if (!dateString) return 'TBD';
+      const d = new Date(dateString);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    function formatTime(dateString) {
+      if (!dateString) return '';
+      const d = new Date(dateString);
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+
+    // ==========================================
+    // RENDER FUNCTIONS (Matching Exact HTML Specs)
+    // ==========================================
+
+    // 1. Navigation Header
+    function renderHeader() {
+      const u = state.currentUser;
+      const initials = u ? u.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'AP';
+      const isAdmin = u && u.role === 'ADMIN';
+
+      return `
+        <div style="height:72px;flex:0 0 auto;background:#111111;display:flex;align-items:center;padding:0 40px;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:44px">
+            <div style="display:flex;align-items:center;gap:10px;cursor:pointer" onclick="navigate('opportunities')">
+              <svg viewBox="0 0 100 100" width="34" height="34">
+                <rect width="100" height="100" fill="#111111" rx="8"/>
+                <path d="M22 30 L50 50 L22 70" fill="none" stroke="#D6202F" stroke-width="12" stroke-linecap="square"/>
+                <path d="M48 30 L76 50 L48 70" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="square"/>
+              </svg>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:14px;color:#FFFFFF;letter-spacing:0.5px">CREW CONNECT</div>
+            </div>
+            <div style="display:flex;gap:28px">
+              <span class="nav-tab ${state.currentView === 'opportunities' ? 'active' : ''}" onclick="navigate('opportunities')">BROWSE</span>
+              <span class="nav-tab ${state.currentView === 'my-registrations' ? 'active' : ''}" onclick="navigate('my-registrations')">MY REGISTRATIONS</span>
+              ${isAdmin ? `
+                <span class="nav-tab ${state.currentView === 'admin-new-opportunity' ? 'active' : ''}" onclick="navigate('admin-new-opportunity')">+ NEW OPPORTUNITY</span>
+                <span class="nav-tab ${state.currentView === 'admin-volunteers' ? 'active' : ''}" onclick="navigate('admin-volunteers')">ADMIN ROSTER</span>
+              ` : ''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:30px;height:30px;background:${isAdmin ? '#2F5FE0' : '#D6202F'};color:#FFFFFF;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center">${initials}</div>
+              <div>
+                <div style="font-size:12px;font-weight:800;color:#FFFFFF;line-height:1.2;text-transform:uppercase">${u ? u.name : 'GUEST'}</div>
+                <div style="font-size:10px;color:#9C9A93;line-height:1.2;letter-spacing:0.5px">${isAdmin ? 'ADMINISTRATOR' : 'VOLUNTEER'}</div>
+              </div>
+            </div>
+            <button onclick="handleLogout()" style="background:transparent;border:1px solid #444444;color:#9C9A93;font-size:10px;font-weight:800;padding:6px 10px;cursor:pointer;letter-spacing:1px">LOGOUT</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // 2. Login View
+    function renderLogin() {
+      return `
+        <div style="width:100%;min-height:100vh;box-sizing:border-box;display:flex;overflow:hidden">
+          <div style="width:520px;min-height:100vh;background:#D6202F;box-sizing:border-box;padding:48px;display:flex;flex-direction:column;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:10px">
+              <svg viewBox="0 0 100 100" width="34" height="34">
+                <rect width="100" height="100" fill="#111111" rx="8"/>
+                <path d="M22 30 L50 50 L22 70" fill="none" stroke="#D6202F" stroke-width="12" stroke-linecap="square"/>
+                <path d="M48 30 L76 50 L48 70" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="square"/>
+              </svg>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:14px;color:#111111;letter-spacing:1px">CREW CONNECT</div>
+            </div>
+            <div>
+              <div style="display:inline-block;background:#111111;color:#FFFFFF;font-size:11px;font-weight:800;letter-spacing:1.5px;padding:6px 12px;margin-bottom:20px">VOLUNTEER SIGN IN</div>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:66px;line-height:0.95;text-transform:uppercase">
+                <div style="color:#111111">Show Up.</div>
+                <div style="color:#FFFFFF">Show Out.</div>
+              </div>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#111111;max-width:360px;line-height:1.5">Every shift, drive and event on campus — in one place. Sign in to find your next one.</div>
+          </div>
+
+          <div style="flex:1 1 auto;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px">
+            <div style="width:360px;display:flex;flex-direction:column;gap:26px">
+              <div>
+                <div style="font-family:'Archivo Black',sans-serif;font-size:28px;text-transform:uppercase">Welcome back</div>
+                <div style="font-size:13px;color:#6E6C66;margin-top:6px">Sign in to keep volunteering.</div>
+              </div>
+              <form onsubmit="handleLogin(event)" style="display:flex;flex-direction:column;gap:20px">
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <label for="login-email" style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Email</label>
+                  <input id="login-email" type="email" placeholder="you@campus.edu" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px;box-sizing:border-box">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:center">
+                    <label for="login-password" style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Password</label>
+                  </div>
+                  <input id="login-password" type="password" placeholder="••••••••" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px;box-sizing:border-box">
+                </div>
+                <button type="submit" style="height:50px;border:none;background:#111111;color:#FFFFFF;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;margin-top:8px">Sign In →</button>
+              </form>
+              <div style="font-size:12px;color:#6E6C66">
+                New here? <a href="#" onclick="navigate('register')" style="color:#D6202F;font-weight:800">Create an account</a>
+              </div>
+              <div style="font-size:11px;color:#6E6C66;border-top:1px solid #D9D6CC;padding-top:14px">
+                <strong>Quick logins:</strong><br>
+                Admin: <code>admin@campus.edu</code> (<code>Admin@12345</code>)<br>
+                Volunteer: <code>asha@campus.edu</code> (<code>Password123</code>)
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // 3. Register View
+    function renderRegister() {
+      return `
+        <div style="width:100%;min-height:100vh;box-sizing:border-box;display:flex;overflow:hidden">
+          <div style="width:520px;min-height:100vh;background:#D6202F;box-sizing:border-box;padding:48px;display:flex;flex-direction:column;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:10px">
+              <svg viewBox="0 0 100 100" width="34" height="34">
+                <rect width="100" height="100" fill="#111111" rx="8"/>
+                <path d="M22 30 L50 50 L22 70" fill="none" stroke="#D6202F" stroke-width="12" stroke-linecap="square"/>
+                <path d="M48 30 L76 50 L48 70" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="square"/>
+              </svg>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:14px;color:#111111;letter-spacing:1px">CREW CONNECT</div>
+            </div>
+            <div>
+              <div style="display:inline-block;background:#111111;color:#FFFFFF;font-size:11px;font-weight:800;letter-spacing:1.5px;padding:6px 12px;margin-bottom:20px">VOLUNTEER SIGN UP</div>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:66px;line-height:0.95;text-transform:uppercase">
+                <div style="color:#111111">Step Up.</div>
+                <div style="color:#FFFFFF">Stand Out.</div>
+              </div>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#111111;max-width:360px;line-height:1.5">Join the campus crew network. Register to earn community credit and lead student activities.</div>
+          </div>
+
+          <div style="flex:1 1 auto;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px">
+            <div style="width:400px;display:flex;flex-direction:column;gap:20px">
+              <div>
+                <div style="font-family:'Archivo Black',sans-serif;font-size:28px;text-transform:uppercase">Create Account</div>
+                <div style="font-size:13px;color:#6E6C66;margin-top:4px">Register as a campus student volunteer.</div>
+              </div>
+              <form onsubmit="handleRegister(event)" style="display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Full Name</label>
+                  <input id="reg-name" type="text" placeholder="Asha Sharma" required style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Campus Email</label>
+                  <input id="reg-email" type="email" placeholder="you@campus.edu" required style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Password</label>
+                  <input id="reg-password" type="password" placeholder="At least 6 characters" minlength="6" required style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+                <div style="display:flex;gap:12px">
+                  <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+                    <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Branch</label>
+                    <input id="reg-branch" type="text" placeholder="CSE / ECE" style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                  </div>
+                  <div style="width:70px;display:flex;flex-direction:column;gap:4px">
+                    <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Section</label>
+                    <input id="reg-section" type="text" placeholder="A" style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                  </div>
+                  <div style="width:70px;display:flex;flex-direction:column;gap:4px">
+                    <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Year</label>
+                    <select id="reg-year" style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3" selected>3</option>
+                      <option value="4">4</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase">Phone Number</label>
+                  <input id="reg-phone" type="tel" placeholder="+91 98765 43210" style="height:38px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+                <button type="submit" style="height:48px;border:none;background:#111111;color:#FFFFFF;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;margin-top:10px">Create Account →</button>
+              </form>
+              <div style="font-size:12px;color:#6E6C66">
+                Already registered? <a href="#" onclick="navigate('login')" style="color:#D6202F;font-weight:800">Sign in instead</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // 4. Browse Opportunities View (Exact User Layout)
+    function renderOpportunities() {
+      const opps = state.opportunities;
+
+      const oppCards = opps.map((opp, idx) => {
+        const isHero = idx === 0;
+        const numStr = (idx + 1).toString().padStart(2, '0');
+        const pct = Math.min(100, Math.round((opp.registeredCount / opp.requiredVolunteers) * 100));
+        const isOpen = opp.status === 'OPEN';
+        const isFull = opp.registeredCount >= opp.requiredVolunteers;
+
+        if (isHero) {
+          return `
+            <div style="grid-column:span 2;background:#D6202F;color:#FFFFFF;border:2px solid #111111;padding:22px;display:flex;flex-direction:column;gap:12px;min-height:220px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div style="font-size:10px;font-weight:800;letter-spacing:1px;opacity:0.7">${numStr}</div>
+                <div style="padding:3px 9px;font-size:10px;font-weight:800;letter-spacing:0.5px;background:#111111;color:#FFFFFF">${opp.status}</div>
+              </div>
+              <div style="font-family:'Archivo Black',sans-serif;font-size:30px;line-height:1.05;text-transform:uppercase">${opp.title}</div>
+              <div style="font-size:12px;font-weight:700;opacity:0.85">${formatDate(opp.dateTime)}, ${formatTime(opp.dateTime)} · ${opp.location}</div>
+              <div style="font-size:12px;line-height:1.5;opacity:0.9;flex:1 1 auto">${opp.description || 'Join fellow volunteers for this key campus event.'}</div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="height:5px;background:rgba(0,0,0,0.18);overflow:hidden">
+                  <div style="height:100%;background:#111111;width:${pct}%"></div>
+                </div>
+                <div style="font-size:11px;font-weight:700;opacity:0.85">${opp.registeredCount}/${opp.requiredVolunteers} VOLUNTEERS ${isFull ? '(CAPACITY REACHED)' : ''}</div>
+              </div>
+              <div style="display:flex;gap:14px;align-items:center;margin-top:6px">
+                <button onclick="handleRegisterOpportunity('${opp._id}')" ${!isOpen || isFull ? 'disabled' : ''} style="height:36px;padding:0 16px;background:#111111;color:#FFFFFF;border:none;font-size:11px;font-weight:800;letter-spacing:1px;cursor:${!isOpen || isFull ? 'not-allowed' : 'pointer'};opacity:${!isOpen || isFull ? '0.5' : '1'}">
+                  ${!isOpen ? 'NOT OPEN' : isFull ? 'FULL' : 'REGISTER NOW →'}
+                </button>
+                <a href="#" onclick="openOpportunityModal('${opp._id}')" style="font-size:12px;font-weight:800;letter-spacing:0.5px;border-bottom:2px solid currentColor">VIEW DETAILS →</a>
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div style="grid-column:span 1;background:#FFFFFF;color:#111111;border:2px solid #111111;padding:22px;display:flex;flex-direction:column;gap:12px;min-height:220px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div style="font-size:10px;font-weight:800;letter-spacing:1px;opacity:0.7">${numStr}</div>
+              <div style="padding:3px 9px;font-size:10px;font-weight:800;letter-spacing:0.5px;background:${opp.status === 'OPEN' ? '#D6202F' : '#111111'};color:#FFFFFF">${opp.status}</div>
+            </div>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:22px;line-height:1.05;text-transform:uppercase">${opp.title}</div>
+            <div style="font-size:12px;font-weight:700;color:#6E6C66">${formatDate(opp.dateTime)}, ${formatTime(opp.dateTime)} · ${opp.location}</div>
+            <div style="font-size:12px;line-height:1.5;color:#444444;flex:1 1 auto">${opp.description ? opp.description.substring(0, 95) + '...' : ''}</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <div style="height:5px;background:rgba(0,0,0,0.1);overflow:hidden">
+                <div style="height:100%;background:#D6202F;width:${pct}%"></div>
+              </div>
+              <div style="font-size:11px;font-weight:700;color:#6E6C66">${opp.registeredCount}/${opp.requiredVolunteers} VOLUNTEERS</div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
+              <button onclick="handleRegisterOpportunity('${opp._id}')" ${!isOpen || isFull ? 'disabled' : ''} style="height:32px;padding:0 12px;background:#111111;color:#FFFFFF;border:none;font-size:10px;font-weight:800;letter-spacing:0.5px;cursor:${!isOpen || isFull ? 'not-allowed' : 'pointer'};opacity:${!isOpen || isFull ? '0.5' : '1'}">
+                ${!isOpen ? 'CLOSED' : isFull ? 'FULL' : 'REGISTER'}
+              </button>
+              <a href="#" onclick="openOpportunityModal('${opp._id}')" style="font-size:11px;font-weight:800;letter-spacing:0.5px;border-bottom:2px solid currentColor">DETAILS →</a>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        ${renderHeader()}
+        <div style="flex:1 1 auto;padding:32px 40px;display:flex;flex-direction:column;gap:22px;max-width:1440px;width:100%;margin:0 auto">
+          <div>
+            <div style="display:inline-block;background:#D6202F;color:#FFFFFF;font-size:10px;font-weight:800;letter-spacing:1.5px;padding:4px 10px;margin-bottom:10px">01 / OPPORTUNITIES</div>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:38px;text-transform:uppercase;line-height:1">Find Your Next Shift</div>
+          </div>
+
+          <!-- Filters Bar -->
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:20px;border-top:2px solid #111111;border-bottom:2px solid #111111;padding:12px 0">
+            <input type="text" id="filter-location" value="${state.filters.location}" oninput="state.filters.location=this.value; loadOpportunities();" placeholder="SEARCH LOCATION" style="height:32px;width:220px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;box-sizing:border-box">
+            <select id="filter-status" onchange="state.filters.status=this.value; loadOpportunities();" style="height:32px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:#111111">
+              <option value="ALL" ${state.filters.status === 'ALL' ? 'selected' : ''}>ALL STATUSES</option>
+              <option value="OPEN" ${state.filters.status === 'OPEN' ? 'selected' : ''}>OPEN ONLY</option>
+              <option value="CLOSED" ${state.filters.status === 'CLOSED' ? 'selected' : ''}>CLOSED</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;cursor:pointer">
+              <input type="checkbox" id="filter-upcoming" ${state.filters.upcoming ? 'checked' : ''} onchange="state.filters.upcoming=this.checked; loadOpportunities();" style="accent-color:#D6202F"> UPCOMING ONLY
+            </label>
+            <div style="margin-left:auto;font-size:12px;font-weight:700;color:#6E6C66">${opps.length} RESULTS</div>
+          </div>
+
+          <!-- Opportunities Grid -->
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:min-content;gap:16px;padding-bottom:40px">
+            ${opps.length ? oppCards : `<div style="grid-column:span 3;padding:40px;text-align:center;font-weight:700;color:#6E6C66">No volunteer shifts found matching your filters.</div>`}
+          </div>
+        </div>
+      `;
+    }
+
+    // 5. My Registrations View (Exact User Layout)
+    function renderMyRegistrations() {
+      const rows = state.myRegistrations.map(reg => {
+        const opp = reg.opportunity || {};
+        const isRegistered = reg.status === 'REGISTERED';
+        const isFuture = opp.dateTime && new Date(opp.dateTime) > new Date();
+
+        let statusBadge = '';
+        if (reg.status === 'REGISTERED') {
+          statusBadge = `<div class="badge-pill" style="background:#D6202F;color:#FFFFFF">REGISTERED</div>`;
+        } else if (reg.status === 'ATTENDED') {
+          statusBadge = `<div class="badge-pill" style="background:#1F6F3D;color:#FFFFFF">ATTENDED</div>`;
+        } else if (reg.status === 'WITHDRAWN') {
+          statusBadge = `<div class="badge-pill" style="background:#FFFFFF;color:#111111;border:2px solid #111111">WITHDRAWN</div>`;
+        } else {
+          statusBadge = `<div class="badge-pill" style="background:#FFFFFF;color:#D6202F;border:2px solid #D6202F">${reg.status}</div>`;
+        }
+
+        return `
+          <div style="display:grid;grid-template-columns:2.2fr 1.3fr 1.3fr 1fr 1fr;padding:16px 4px;align-items:center;font-size:13px;border-bottom:1px solid #D9D6CC">
+            <div style="font-weight:800">${opp.title || 'Untitled Opportunity'}</div>
+            <div style="color:#6E6C66;font-weight:600">${formatDate(opp.dateTime)}</div>
+            <div style="color:#6E6C66;font-weight:600">${opp.location || 'Campus'}</div>
+            <div>${statusBadge}</div>
+            <div>
+              ${isRegistered && isFuture ? `
+                <button onclick="handleWithdrawRegistration('${reg._id}')" style="height:32px;padding:0 14px;border:2px solid #111111;background:#FFFFFF;color:#111111;font-size:11px;font-weight:800;letter-spacing:0.5px;cursor:pointer">WITHDRAW</button>
+              ` : `<span style="font-size:12px;color:#6E6C66">—</span>`}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        ${renderHeader()}
+        <div style="flex:1 1 auto;padding:32px 40px;display:flex;flex-direction:column;gap:20px;max-width:1440px;width:100%;margin:0 auto">
+          <div>
+            <div style="display:inline-block;background:#D6202F;color:#FFFFFF;font-size:10px;font-weight:800;letter-spacing:1.5px;padding:4px 10px;margin-bottom:10px">MY ACTIVITY</div>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:38px;text-transform:uppercase;line-height:1">My Registrations</div>
+          </div>
+
+          <div style="border-top:2px solid #111111;flex:1 1 auto;display:flex;flex-direction:column">
+            <div style="display:grid;grid-template-columns:2.2fr 1.3fr 1.3fr 1fr 1fr;padding:14px 4px;font-size:11px;font-weight:800;letter-spacing:0.5px;color:#6E6C66;border-bottom:2px solid #111111">
+              <div>OPPORTUNITY</div><div>DATE</div><div>LOCATION</div><div>STATUS</div><div>ACTION</div>
+            </div>
+            <div>
+              ${state.myRegistrations.length ? rows : `<div style="padding:32px 4px;font-weight:700;color:#6E6C66">You have not registered for any volunteer opportunities yet.</div>`}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // 6. Admin Create Opportunity (Exact User Layout)
+    function renderAdminNewOpportunity() {
+      return `
+        ${renderHeader()}
+        <div style="flex:1 1 auto;padding:32px 40px;display:flex;flex-direction:column;gap:18px;align-items:center">
+          <div style="width:640px;display:flex;flex-direction:column;gap:18px">
+            <a href="#" onclick="navigate('opportunities')" style="font-size:12px;font-weight:800;letter-spacing:0.5px">← BACK TO OPPORTUNITIES</a>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:30px;text-transform:uppercase">New Opportunity</div>
+
+            <form onsubmit="handleCreateOpportunity(event)" style="border:2px solid #111111;padding:28px;display:flex;flex-direction:column;gap:20px;background:#FFFFFF">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <label style="font-size:11px;font-weight:800;letter-spacing:1px">TITLE</label>
+                <input id="new-title" type="text" placeholder="e.g. Campus Tree Plantation" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <label style="font-size:11px;font-weight:800;letter-spacing:1px">DESCRIPTION</label>
+                <textarea id="new-desc" rows="4" placeholder="What will volunteers be doing?" required style="border:2px solid #DAD7CC;padding:12px 14px;font-size:14px;font-family:inherit;resize:none"></textarea>
+              </div>
+              <div style="display:flex;gap:20px">
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1 1 auto">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px">DATE &amp; TIME</label>
+                  <input id="new-datetime" type="datetime-local" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                  <div style="font-size:11px;color:#6E6C66">Must be in the future.</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1 1 auto">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px">LOCATION</label>
+                  <input id="new-location" type="text" placeholder="e.g. North Quad" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+              </div>
+              <div style="display:flex;gap:20px">
+                <div style="display:flex;flex-direction:column;gap:8px;width:220px">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px">VOLUNTEERS NEEDED</label>
+                  <input id="new-capacity" type="number" min="1" placeholder="20" required style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:14px;padding:0 2px">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+                  <label style="font-size:11px;font-weight:800;letter-spacing:1px">ASSOCIATED CLUB</label>
+                  <select id="new-club" style="height:44px;border:none;border-bottom:2px solid #111111;background:transparent;font-size:13px;font-weight:700">
+                    <option value="">None / General Campus Event</option>
+                    ${state.clubs.map(c => `<option value="${c._id}">${c.name}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <div style="display:flex;gap:12px;margin-top:6px">
+                <button type="submit" style="height:48px;padding:0 22px;border:none;background:#D6202F;color:#FFFFFF;font-size:12px;font-weight:800;letter-spacing:0.5px;cursor:pointer">SAVE OPPORTUNITY</button>
+                <a href="#" onclick="navigate('opportunities')" style="height:48px;padding:0 22px;border:2px solid #111111;color:#111111;font-size:12px;font-weight:800;letter-spacing:0.5px;display:flex;align-items:center">CANCEL</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    // Admin Action: Create Opportunity
+    async function handleCreateOpportunity(e) {
+      e.preventDefault();
+      const title = document.getElementById('new-title').value.trim();
+      const description = document.getElementById('new-desc').value.trim();
+      const dateTime = new Date(document.getElementById('new-datetime').value).toISOString();
+      const location = document.getElementById('new-location').value.trim();
+      const requiredVolunteers = parseInt(document.getElementById('new-capacity').value, 10);
+      const club = document.getElementById('new-club').value || undefined;
+
+      try {
+        await apiRequest('/opportunities', {
+          method: 'POST',
+          body: JSON.stringify({ title, description, dateTime, location, requiredVolunteers, club })
+        });
+        showToast('Opportunity created successfully!');
+        state.currentView = 'opportunities';
+        loadOpportunities();
+      } catch (err) {
+        showToast(err.message || 'Creation failed', true);
+      }
+    }
+
+    // 7. Admin Volunteers Roster & Excel Download View
+    function renderAdminVolunteers() {
+      const opps = state.opportunities;
+      return `
+        ${renderHeader()}
+        <div style="flex:1 1 auto;padding:32px 40px;display:flex;flex-direction:column;gap:20px;max-width:1440px;width:100%;margin:0 auto">
+          <div>
+            <div style="display:inline-block;background:#2F5FE0;color:#FFFFFF;font-size:10px;font-weight:800;letter-spacing:1.5px;padding:4px 10px;margin-bottom:10px">ADMIN MANAGEMENT</div>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:38px;text-transform:uppercase;line-height:1">Volunteer Rosters &amp; Excel Export</div>
+          </div>
+
+          <div style="border-top:2px solid #111111">
+            <div style="display:grid;grid-template-columns:2.5fr 1.2fr 1.2fr 1fr 2fr;padding:14px 4px;font-size:11px;font-weight:800;color:#6E6C66;border-bottom:2px solid #111111">
+              <div>OPPORTUNITY</div><div>DATE</div><div>STATUS</div><div>SIGNUPS</div><div>ACTIONS</div>
+            </div>
+            ${opps.map(opp => `
+              <div style="display:grid;grid-template-columns:2.5fr 1.2fr 1.2fr 1fr 2fr;padding:16px 4px;align-items:center;font-size:13px;border-bottom:1px solid #D9D6CC">
+                <div style="font-weight:800">${opp.title}</div>
+                <div style="color:#6E6C66;font-weight:600">${formatDate(opp.dateTime)}</div>
+                <div><span class="badge-pill" style="background:#111111;color:#FFFFFF">${opp.status}</span></div>
+                <div style="font-weight:700">${opp.registeredCount} / ${opp.requiredVolunteers}</div>
+                <div style="display:flex;gap:8px">
+                  <button onclick="handleDownloadExcel('${opp._id}', '${opp.title}')" style="height:32px;padding:0 12px;background:#1F6F3D;color:#FFFFFF;border:none;font-size:11px;font-weight:800;letter-spacing:0.5px;cursor:pointer">DOWNLOAD .XLSX</button>
+                  ${opp.status !== 'CANCELLED' ? `
+                    <button onclick="handleCancelOpportunity('${opp._id}')" style="height:32px;padding:0 10px;background:#FFFFFF;color:#D6202F;border:2px solid #D6202F;font-size:11px;font-weight:800;cursor:pointer">CANCEL</button>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Modal: View Opportunity Details
+    function openOpportunityModal(opportunityId) {
+      const opp = state.opportunities.find(o => o._id === opportunityId);
+      if (!opp) return;
+      state.selectedOpportunity = opp;
+      render();
+    }
+    function closeOpportunityModal() {
+      state.selectedOpportunity = null;
+      render();
+    }
+
+    function renderModal() {
+      const opp = state.selectedOpportunity;
+      if (!opp) return '';
+      const isOpen = opp.status === 'OPEN';
+      const isFull = opp.registeredCount >= opp.requiredVolunteers;
+
+      return `
+        <div class="modal-backdrop" onclick="if(event.target === this) closeOpportunityModal()">
+          <div style="width:580px;background:#FFFFFF;border:2px solid #111111;padding:32px;display:flex;flex-direction:column;gap:18px;position:relative">
+            <button onclick="closeOpportunityModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;font-size:20px;font-weight:800;cursor:pointer">×</button>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span class="badge-pill" style="background:#D6202F;color:#FFFFFF">${opp.status}</span>
+              ${opp.club ? `<span class="badge-pill" style="background:#111111;color:#FFFFFF">${opp.club.name}</span>` : ''}
+            </div>
+            <div style="font-family:'Archivo Black',sans-serif;font-size:28px;text-transform:uppercase;line-height:1.1">${opp.title}</div>
+            <div style="font-size:13px;font-weight:700;color:#6E6C66">
+              📅 ${formatDate(opp.dateTime)} at ${formatTime(opp.dateTime)}<br>
+              📍 Venue: ${opp.location}
+            </div>
+            <div style="font-size:14px;line-height:1.6;color:#333333;border-top:1px solid #E5E2D9;padding-top:12px">
+              ${opp.description || 'No detailed description provided.'}
+            </div>
+            <div style="background:#F3F1EC;padding:14px;border:1px solid #D9D6CC">
+              <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800;margin-bottom:6px">
+                <span>SLOT CAPACITY</span>
+                <span>${opp.registeredCount} / ${opp.requiredVolunteers} FILLED</span>
+              </div>
+              <div style="height:6px;background:#E0DCD1;overflow:hidden">
+                <div style="height:100%;background:#D6202F;width:${Math.min(100, Math.round((opp.registeredCount / opp.requiredVolunteers) * 100))}%"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px">
+              <button onclick="handleRegisterOpportunity('${opp._id}')" ${!isOpen || isFull ? 'disabled' : ''} style="flex:1;height:48px;background:#D6202F;color:#FFFFFF;border:none;font-size:12px;font-weight:800;letter-spacing:1px;cursor:${!isOpen || isFull ? 'not-allowed' : 'pointer'};opacity:${!isOpen || isFull ? '0.5' : '1'}">
+                ${!isOpen ? 'SHIFT NOT OPEN' : isFull ? 'CAPACITY FULL' : 'CONFIRM REGISTRATION →'}
+              </button>
+              <button onclick="closeOpportunityModal()" style="height:48px;padding:0 20px;border:2px solid #111111;background:#FFFFFF;font-size:12px;font-weight:800;cursor:pointer">CLOSE</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // View Navigation
+    function navigate(viewName) {
+      state.currentView = viewName;
+      if (viewName === 'opportunities') loadOpportunities();
+      if (viewName === 'my-registrations') loadMyRegistrations();
+      if (viewName === 'admin-new-opportunity') loadClubsAndEvents();
+      if (viewName === 'admin-volunteers') loadOpportunities();
+      render();
+    }
+
+    // Main App Renderer
+    function render() {
+      const app = document.getElementById('app');
+      let html = '';
+
+      if (!state.currentUser && state.currentView !== 'register') {
+        html = renderLogin();
+      } else if (!state.currentUser && state.currentView === 'register') {
+        html = renderRegister();
+      } else {
+        switch (state.currentView) {
+          case 'my-registrations':
+            html = renderMyRegistrations();
+            break;
+          case 'admin-new-opportunity':
+            html = renderAdminNewOpportunity();
+            break;
+          case 'admin-volunteers':
+            html = renderAdminVolunteers();
+            break;
+          case 'opportunities':
+          default:
+            html = renderOpportunities();
+            break;
+        }
+      }
+
+      if (state.selectedOpportunity) {
+        html += renderModal();
+      }
+
+      app.innerHTML = html;
+    }
+
+    // Initialize Application
+    checkAuth();
+    loadOpportunities();
+  </script>
+</body>
+</html>

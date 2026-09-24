@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
@@ -18,8 +19,20 @@ const registrationRoutes = require('./routes/registrationRoutes');
 
 const app = express();
 
-// Security HTTP headers
-app.use(helmet());
+// Security HTTP headers with CSP configured for Google Fonts and inline scripts/styles
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"]
+      }
+    }
+  })
+);
 
 // CORS configuration (never wildcard with credentials)
 const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:3000';
@@ -46,6 +59,9 @@ app.use(mongoSanitize());
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
+
+// Serve static frontend assets from public/
+app.use(express.static(path.join(__dirname, '../public')));
 
 // General API Rate Limiting
 const apiLimiter = rateLimit({
@@ -102,7 +118,15 @@ app.get(
   require('./controllers/opportunityController').exportVolunteersExcel
 );
 
-// Unhandled route handler (404)
+// Serve SPA index.html for non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Unhandled API route handler (404)
 app.use((req, res, next) => {
   next(new ApiError(404, 'NOT_FOUND', `Route not found: ${req.method} ${req.originalUrl}`));
 });
