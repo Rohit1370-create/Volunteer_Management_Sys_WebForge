@@ -1,0 +1,1175 @@
+{
+  "info": {
+    "_postman_id": "b3e0c06a-939e-4e43-85dc-b1dfa5f4f89d",
+    "name": "P21 — Volunteer Management System API Test Suite",
+    "description": "Comprehensive Postman test collection for the Volunteer Management System covering all functional requirements, security policies, atomic capacity guards, state machine transitions, and RBAC.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@campus.edu",
+      "type": "string"
+    },
+    {
+      "key": "adminPassword",
+      "value": "Admin@12345",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "asha@campus.edu",
+      "type": "string"
+    },
+    {
+      "key": "userPassword",
+      "value": "Password123",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "opportunityId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "registrationId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01. Auth & Security",
+      "item": [
+        {
+          "name": "Register User (Public -> USER role)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"User role defaults to USER\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.role).to.eql(\"USER\");",
+                  "    pm.expect(json.data.password).to.be.undefined;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Student Volunteer\",\n  \"email\": \"newvolunteer@campus.edu\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register Duplicate Email (409 Conflict)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"Normalized error message returned\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.message).to.include(\"already registered\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate User\",\n  \"email\": \"asha@campus.edu\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login as Admin (Sets Cookie & Token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.collectionVariables.set(\"adminToken\", json.token);",
+                  "pm.test(\"Admin role confirmed\", function () {",
+                  "    pm.expect(json.data.role).to.eql(\"ADMIN\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login as User (Sets Cookie & Token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.collectionVariables.set(\"userToken\", json.token);",
+                  "pm.test(\"User role confirmed\", function () {",
+                  "    pm.expect(json.data.role).to.eql(\"USER\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login Wrong Password (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 Unauthorized\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.eql(\"Invalid credentials\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"IncorrectPassword\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login Non-Existent User (User Enumeration Guard 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401 with identical message\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.message).to.eql(\"Invalid credentials\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"unknown_person@campus.edu\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Current Profile (GET /api/auth/me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        },
+        {
+          "name": "Access /api/auth/me Without Auth (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Opportunities Management",
+      "item": [
+        {
+          "name": "Create Opportunity - Capacity 1 [ADMIN]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.collectionVariables.set(\"opportunityId\", json.data._id);",
+                  "pm.test(\"Initial registeredCount is 0 and status is OPEN\", function () {",
+                  "    pm.expect(json.data.registeredCount).to.eql(0);",
+                  "    pm.expect(json.data.status).to.eql(\"OPEN\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Robotics Expo Coordinator\",\n  \"description\": \"Coordinate booth setups and participant queues for the annual robotics exhibition.\",\n  \"dateTime\": \"2026-12-15T10:00:00.000Z\",\n  \"location\": \"Engineering Block Atrium\",\n  \"requiredVolunteers\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities"]
+            }
+          }
+        },
+        {
+          "name": "USER Attempts to Create Opportunity (403 Forbidden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403 Forbidden\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Student Organized Party\",\n  \"description\": \"Unauthorized event creation attempt\",\n  \"dateTime\": \"2026-12-20T10:00:00.000Z\",\n  \"location\": \"Campus Quad\",\n  \"requiredVolunteers\": 5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities"]
+            }
+          }
+        },
+        {
+          "name": "Create Opportunity with Past Date (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.include(\"dateTime must be in the future\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Past History Event\",\n  \"description\": \"This event is in the past\",\n  \"dateTime\": \"2020-01-01T10:00:00.000Z\",\n  \"location\": \"Old Hall\",\n  \"requiredVolunteers\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities"]
+            }
+          }
+        },
+        {
+          "name": "Browse Opportunities with Filters (Status, Location)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.success).to.be.true;",
+                  "pm.expect(json.data).to.be.an(\"array\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities?status=OPEN&upcoming=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "OPEN"
+                },
+                {
+                  "key": "upcoming",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Single Opportunity by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data._id).to.eql(pm.collectionVariables.get(\"opportunityId\"));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Opportunity with Invalid ObjectId (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/invalid-id-format",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "invalid-id-format"]
+            }
+          }
+        },
+        {
+          "name": "Update Opportunity Details [ADMIN]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.title).to.include(\"Updated\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Robotics Expo Coordinator (Updated)\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}"]
+            }
+          }
+        },
+        {
+          "name": "Reject Status Change in General Update (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.include(\"Status cannot be changed via general update route\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CLOSED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}"]
+            }
+          }
+        },
+        {
+          "name": "View Volunteers for Opportunity [ADMIN]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/volunteers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "volunteers"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. Capacity & Registration Guard",
+      "item": [
+        {
+          "name": "Register User A (201 Created - Slot 1/1 Filled)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.collectionVariables.set(\"registrationId\", json.data._id);",
+                  "pm.expect(json.data.status).to.eql(\"REGISTERED\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register User A Again (409 Duplicate Guard)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.eql(\"Already registered for this opportunity\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register Second User (409 Capacity Guard - No available slots)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Log in as second user (Ravi) to get his token",
+                  "pm.sendRequest({",
+                  "    url: pm.collectionVariables.get(\"baseUrl\") + '/api/auth/login',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: {",
+                  "        mode: 'raw',",
+                  "        raw: JSON.stringify({ email: 'ravi@campus.edu', password: 'Password123' })",
+                  "    }",
+                  "}, function (err, res) {",
+                  "    if (!err && res.code === 200) {",
+                  "        pm.variables.set('raviToken', res.json().token);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.eql(\"No available slots\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{raviToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "register"]
+            }
+          }
+        },
+        {
+          "name": "View Own Participation History [USER]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data).to.be.an(\"array\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/registrations/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "registrations", "me"]
+            }
+          }
+        },
+        {
+          "name": "Withdraw From Opportunity [USER]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.status).to.eql(\"WITHDRAWN\");",
+                  "pm.expect(json.data.withdrawnAt).to.not.be.null;"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/registrations/{{registrationId}}/withdraw",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "registrations", "{{registrationId}}", "withdraw"]
+            }
+          }
+        },
+        {
+          "name": "Re-Register After Withdrawal (Flip Document to REGISTERED 201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.status).to.eql(\"REGISTERED\");",
+                  "pm.expect(json.data._id).to.eql(pm.collectionVariables.get(\"registrationId\"));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "register"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Admin Operations & Status Transitions",
+      "item": [
+        {
+          "name": "Admin View & Filter All Registrations",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data).to.be.an(\"array\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/registrations?status=REGISTERED",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "registrations"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "REGISTERED"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Admin Record Attendance Outcome (ATTENDED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.status).to.eql(\"ATTENDED\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ATTENDED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/registrations/{{registrationId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "registrations", "{{registrationId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Admin Cancel Opportunity (Cascades to WITHDRAWN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.status).to.eql(\"CANCELLED\");",
+                  "pm.expect(json.data.registeredCount).to.eql(0);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CANCELLED\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/opportunities/{{opportunityId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "opportunities", "{{opportunityId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Admin View All Volunteers List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data).to.be.an(\"array\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users"]
+            }
+          }
+        },
+        {
+          "name": "User Attempt to View Volunteers List (403 Forbidden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 403 Forbidden\", function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users"]
+            }
+          }
+        },
+        {
+          "name": "Update Own Profile [USER]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.data.name).to.eql(\"Asha Sharma (Updated)\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Asha Sharma (Updated)\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Prevent Role Escalation in Profile Update (400 Bad Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "pm.expect(json.message).to.include(\"Role cannot be changed\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"ADMIN\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "me"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
