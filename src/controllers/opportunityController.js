@@ -1,14 +1,19 @@
 const Opportunity = require('../models/Opportunity');
 const Registration = require('../models/Registration');
+const Event = require('../models/Event');
+const ApiError = require('../utils/apiError');
+const { sendSuccess } = require('../utils/responseEnvelope');
+const { registerUserForOpportunity } = require('../services/registrationService');
+const { generateVolunteersExcel } = require('../services/excelService');
 
 /**
- * @desc    Get all opportunities with optional filters and pagination
- * @route   GET /api/opportunities
- * @access  Private (USER, ADMIN)
+ * @desc    Browse opportunities (open to any USER, no club gating)
+ * @route   GET /api/v1/opportunities
+ * @access  Protected
  */
 const getOpportunities = async (req, res, next) => {
   try {
-    const { status, location, upcoming, page = 1, limit = 10 } = req.query;
+    const { status, club, event, date, upcoming, page = 1, limit = 20 } = req.query;
 
     const query = {};
 
@@ -16,14 +21,22 @@ const getOpportunities = async (req, res, next) => {
       query.status = status;
     }
 
-    if (location) {
-      query.location = { $regex: location, $options: 'i' };
+    if (club) {
+      query.club = club;
     }
 
-    if (upcoming === 'true') {
+    if (event) {
+      query.event = event;
+    }
+
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+      query.dateTime = { $gte: startOfDay, $lte: endOfDay };
+    } else if (upcoming === 'true') {
       query.dateTime = { $gt: new Date() };
-    } else if (upcoming === 'false') {
-      query.dateTime = { $lte: new Date() };
     }
 
     const pageNum = parseInt(page, 10);
@@ -32,18 +45,19 @@ const getOpportunities = async (req, res, next) => {
 
     const total = await Opportunity.countDocuments(query);
     const opportunities = await Opportunity.find(query)
+      .populate('club', 'name description')
+      .populate('event', 'name startDate endDate')
       .populate('createdBy', 'name email')
       .sort({ dateTime: 1 })
       .skip(skip)
       .limit(limitNum);
 
-    res.status(200).json({
-      success: true,
-      count: opportunities.length,
+    return sendSuccess(res, 200, {
       total,
       page: pageNum,
       totalPages: Math.ceil(total / limitNum) || 1,
-      data: opportunities
+      count: opportunities.length,
+      opportunities
     });
   } catch (error) {
     next(error);
@@ -51,25 +65,22 @@ const getOpportunities = async (req, res, next) => {
 };
 
 /**
- * @desc    Get single opportunity by ID
- * @route   GET /api/opportunities/:id
- * @access  Private (USER, ADMIN)
+ * @desc    Get single opportunity details
+ * @route   GET /api/v1/opportunities/:id
+ * @access  Protected
  */
-const getOpportunity = async (req, res, next) => {
+const getOpportunityById = async (req, res, next) => {
   try {
-    const opportunity = await Opportunity.findById(req.params.id).populate('createdBy', 'name email');
+    const opportunity = await Opportunity.findById(req.params.id)
+      .populate('club', 'name description')
+      .populate('event', 'name startDate endDate')
+      .populate('createdBy', 'name email');
 
     if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
+      return next(new ApiError(404, 'NOT_FOUND', 'Opportunity not found'));
     }
 
-    res.status(200).json({
-      success: true,
-      data: opportunity
-    });
+    return sendSuccess(res, 200, opportunity);
   } catch (error) {
     next(error);
   }
@@ -77,24 +88,28 @@ const getOpportunity = async (req, res, next) => {
 
 /**
  * @desc    Create a new opportunity
- * @route   POST /api/opportunities
- * @access  Private (ADMIN)
+ * @route   POST /api/v1/opportunities
+ * @access  Admin
  */
 const createOpportunity = async (req, res, next) => {
   try {
-    const { title, description, dateTime, location, requiredVolunteers } = req.body;
+    // Explicit allow-list destructuring
+    const { title, description, event, club, dateTime, location, requiredVolunteers } = req.body;
 
-    // Check dateTime is in future
-    if (new Date(dateTime) <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: 'dateTime must be in the future'
-      });
+    let clubId = club;
+    // If event is provided and club is not, denormalize club from event
+    if (event && !clubId) {
+      const eventDoc = await Event.findById(event);
+      if (eventDoc) {
+        clubId = eventDoc.club;
+      }
     }
 
     const opportunity = await Opportunity.create({
       title,
-      description,
+      description: description || '',
+      event: event || null,
+      club: clubId || null,
       dateTime,
       location,
       requiredVolunteers,
@@ -103,254 +118,174 @@ const createOpportunity = async (req, res, next) => {
       createdBy: req.user._id
     });
 
-    res.status(201).json({
-      success: true,
-      message: 'Opportunity created successfully',
-      data: opportunity
-    });
+    return sendSuccess(res, 201, opportunity, 'Opportunity created successfully');
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * @desc    Update opportunity details (excluding status)
- * @route   PATCH /api/opportunities/:id
- * @access  Private (ADMIN)
+ * @desc    Update opportunity fields including status
+ * @route   PATCH /api/v1/opportunities/:id
+ * @access  Admin
  */
 const updateOpportunity = async (req, res, next) => {
   try {
     const opportunity = await Opportunity.findById(req.params.id);
-
     if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
+      return next(new ApiError(404, 'NOT_FOUND', 'Opportunity not found'));
     }
 
-    const { title, description, dateTime, location, requiredVolunteers } = req.body;
+    // Explicit allow-list destructuring
+    const { title, description, event, club, dateTime, location, requiredVolunteers, status } = req.body;
 
     if (title !== undefined) opportunity.title = title;
     if (description !== undefined) opportunity.description = description;
-    if (dateTime !== undefined) {
-      opportunity.dateTime = dateTime;
-    }
+    if (event !== undefined) opportunity.event = event;
+    if (club !== undefined) opportunity.club = club;
+    if (dateTime !== undefined) opportunity.dateTime = dateTime;
     if (location !== undefined) opportunity.location = location;
 
     if (requiredVolunteers !== undefined) {
       if (requiredVolunteers < opportunity.registeredCount) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot set requiredVolunteers (${requiredVolunteers}) below currently registered count (${opportunity.registeredCount})`
-        });
+        return next(
+          new ApiError(
+            400,
+            'VALIDATION_ERROR',
+            `Cannot set requiredVolunteers (${requiredVolunteers}) below existing registered count (${opportunity.registeredCount})`
+          )
+        );
       }
       opportunity.requiredVolunteers = requiredVolunteers;
     }
 
+    if (status !== undefined) {
+      opportunity.status = status;
+      // If cancelled, reset count and bulk-flip registrations to WITHDRAWN
+      if (status === 'CANCELLED') {
+        opportunity.registeredCount = 0;
+        await Registration.updateMany(
+          { opportunity: opportunity._id, status: 'REGISTERED' },
+          { $set: { status: 'WITHDRAWN', withdrawnAt: new Date() } }
+        );
+      }
+    }
+
     await opportunity.save();
 
-    res.status(200).json({
-      success: true,
-      message: 'Opportunity updated successfully',
-      data: opportunity
-    });
+    return sendSuccess(res, 200, opportunity, 'Opportunity updated successfully');
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * @desc    Update opportunity status (OPEN, CLOSED, COMPLETED, CANCELLED)
- * @route   PATCH /api/opportunities/:id/status
- * @access  Private (ADMIN)
- */
-const updateOpportunityStatus = async (req, res, next) => {
-  try {
-    const { status } = req.body;
-    const opportunity = await Opportunity.findById(req.params.id);
-
-    if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
-    }
-
-    opportunity.status = status;
-
-    // Admin Status Management (§10):
-    // If status is CANCELLED: reset registeredCount to 0 and cascade bulk-set REGISTERED to WITHDRAWN
-    if (status === 'CANCELLED') {
-      opportunity.registeredCount = 0;
-      await Registration.updateMany(
-        { opportunity: opportunity._id, status: 'REGISTERED' },
-        { $set: { status: 'WITHDRAWN', withdrawnAt: new Date() } }
-      );
-    }
-
-    await opportunity.save();
-
-    res.status(200).json({
-      success: true,
-      message: `Opportunity status updated to ${status}`,
-      data: opportunity
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * @desc    Delete an opportunity
- * @route   DELETE /api/opportunities/:id
- * @access  Private (ADMIN)
+ * @desc    Soft-cancel opportunity (status: CANCELLED, never hard-delete once it has registrations)
+ * @route   DELETE /api/v1/opportunities/:id
+ * @access  Admin
  */
 const deleteOpportunity = async (req, res, next) => {
   try {
     const opportunity = await Opportunity.findById(req.params.id);
-
     if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
+      return next(new ApiError(404, 'NOT_FOUND', 'Opportunity not found'));
     }
 
-    // Cascade delete any associated registrations
-    await Registration.deleteMany({ opportunity: opportunity._id });
-    await opportunity.deleteOne();
+    // Check if it has any registrations
+    const hasRegistrations = await Registration.exists({ opportunity: opportunity._id });
 
-    res.status(200).json({
-      success: true,
-      message: 'Opportunity deleted successfully'
-    });
+    if (hasRegistrations) {
+      // Soft-cancel: status = CANCELLED, registeredCount = 0, bulk flip registrations to WITHDRAWN
+      opportunity.status = 'CANCELLED';
+      opportunity.registeredCount = 0;
+      await opportunity.save();
+
+      await Registration.updateMany(
+        { opportunity: opportunity._id, status: 'REGISTERED' },
+        { $set: { status: 'WITHDRAWN', withdrawnAt: new Date() } }
+      );
+
+      return sendSuccess(res, 200, opportunity, 'Opportunity soft-cancelled (preserved registration history)');
+    }
+
+    // If zero registrations, mark CANCELLED or delete
+    opportunity.status = 'CANCELLED';
+    await opportunity.save();
+
+    return sendSuccess(res, 200, opportunity, 'Opportunity cancelled successfully');
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * @desc    Get volunteers registered for an opportunity
- * @route   GET /api/opportunities/:id/volunteers
- * @access  Private (ADMIN)
+ * @desc    Register for an opportunity
+ * @route   POST /api/v1/opportunities/:id/register
+ * @access  User
+ */
+const registerOpportunity = async (req, res, next) => {
+  try {
+    const registration = await registerUserForOpportunity(req.user._id, req.params.id);
+    return sendSuccess(res, 201, registration, 'Successfully registered for opportunity');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    List registered volunteers for an opportunity
+ * @route   GET /api/v1/opportunities/:id/volunteers
+ * @access  Admin
  */
 const getOpportunityVolunteers = async (req, res, next) => {
   try {
     const opportunity = await Opportunity.findById(req.params.id);
-
     if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
+      return next(new ApiError(404, 'NOT_FOUND', 'Opportunity not found'));
     }
 
-    const registrations = await Registration.find({ opportunity: req.params.id })
-      .populate('user', 'name email role')
-      .sort({ registeredAt: -1 });
+    const registrations = await Registration.find({
+      opportunity: req.params.id,
+      status: 'REGISTERED'
+    })
+      .populate('user', 'name email phone branch section yearOfStudy')
+      .sort({ registeredAt: 1 });
 
-    res.status(200).json({
-      success: true,
-      count: registrations.length,
-      data: registrations
-    });
+    return sendSuccess(res, 200, registrations);
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * @desc    Register for an opportunity (Capacity-safe atomic algorithm §8)
- * @route   POST /api/opportunities/:id/register
- * @access  Private (USER)
+ * @desc    Export volunteer list for one opportunity as an .xlsx file
+ * @route   GET /api/v1/opportunities/:id/volunteers/export
+ *          GET /api/v1/admin/opportunities/:id/volunteers/export
+ * @access  Admin
  */
-const registerForOpportunity = async (req, res, next) => {
+const exportVolunteersExcel = async (req, res, next) => {
   try {
-    const opportunityId = req.params.id;
-    const userId = req.user._id;
-
-    // Step 1: Load the opportunity
-    const opportunity = await Opportunity.findById(opportunityId);
+    const opportunity = await Opportunity.findById(req.params.id);
     if (!opportunity) {
-      return res.status(404).json({
-        success: false,
-        message: 'Opportunity not found'
-      });
+      return next(new ApiError(404, 'NOT_FOUND', 'Opportunity not found'));
     }
 
-    if (opportunity.status !== 'OPEN') {
-      return res.status(409).json({
-        success: false,
-        message: 'Opportunity is not open for registration'
-      });
-    }
+    const registrations = await Registration.find({
+      opportunity: req.params.id,
+      status: 'REGISTERED'
+    })
+      .populate('user', 'name email phone branch section yearOfStudy')
+      .sort({ registeredAt: 1 });
 
-    if (new Date(opportunity.dateTime) <= new Date()) {
-      return res.status(409).json({
-        success: false,
-        message: 'Opportunity has already occurred'
-      });
-    }
+    const buffer = await generateVolunteersExcel(opportunity, registrations);
 
-    // Step 2: Check existing registration for this user
-    const existingReg = await Registration.findOne({ user: userId, opportunity: opportunityId });
-    if (existingReg && existingReg.status === 'REGISTERED') {
-      return res.status(409).json({
-        success: false,
-        message: 'Already registered for this opportunity'
-      });
-    }
+    const safeTitle = opportunity.title.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `volunteers-${safeTitle}-${opportunity._id}.xlsx`;
 
-    // Step 3: Atomically increment registeredCount only if registeredCount < requiredVolunteers AND status = OPEN
-    const updatedOpp = await Opportunity.findOneAndUpdate(
-      {
-        _id: opportunityId,
-        status: 'OPEN',
-        $expr: { $lt: ['$registeredCount', '$requiredVolunteers'] }
-      },
-      { $inc: { registeredCount: 1 } },
-      { new: true }
-    );
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
-    if (!updatedOpp) {
-      return res.status(409).json({
-        success: false,
-        message: 'No available slots'
-      });
-    }
-
-    // Step 4: Upsert the Registration document to status = REGISTERED
-    let registration;
-    try {
-      if (existingReg) {
-        // Re-registration flips existing record back to REGISTERED
-        existingReg.status = 'REGISTERED';
-        existingReg.registeredAt = new Date();
-        existingReg.withdrawnAt = null;
-        await existingReg.save();
-        registration = existingReg;
-      } else {
-        registration = await Registration.create({
-          user: userId,
-          opportunity: opportunityId,
-          status: 'REGISTERED',
-          registeredAt: new Date()
-        });
-      }
-    } catch (saveError) {
-      // Step 4 rollback: if saving registration fails, decrement registeredCount
-      await Opportunity.findByIdAndUpdate(opportunityId, {
-        $inc: { registeredCount: -1 }
-      });
-      throw saveError;
-    }
-
-    res.status(201).json({
-      success: true,
-      message: 'Registered successfully',
-      data: registration
-    });
+    return res.status(200).send(buffer);
   } catch (error) {
     next(error);
   }
@@ -358,11 +293,11 @@ const registerForOpportunity = async (req, res, next) => {
 
 module.exports = {
   getOpportunities,
-  getOpportunity,
+  getOpportunityById,
   createOpportunity,
   updateOpportunity,
-  updateOpportunityStatus,
   deleteOpportunity,
+  registerOpportunity,
   getOpportunityVolunteers,
-  registerForOpportunity
+  exportVolunteersExcel
 };

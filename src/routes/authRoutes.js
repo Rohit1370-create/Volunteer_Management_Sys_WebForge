@@ -10,12 +10,12 @@ const {
   registerValidator,
   loginValidator
 } = require('../validators/authValidators');
-const validate = require('../middleware/validate');
-const { protect } = require('../middleware/auth');
+const validate = require('../middlewares/validate');
+const { protect } = require('../middlewares/auth');
 
 router.post('/register', registerValidator, validate, register);
 router.post('/login', loginValidator, validate, login);
-router.post('/logout', logout);
+router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
 
 module.exports = router;

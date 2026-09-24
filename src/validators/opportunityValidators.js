@@ -1,16 +1,15 @@
-const { body, param, query } = require('express-validator');
+const { body, query } = require('express-validator');
 
 const createOpportunityValidator = [
   body('title')
     .trim()
     .notEmpty()
-    .withMessage('Title is required')
+    .withMessage('Opportunity title is required')
     .isLength({ max: 200 })
     .withMessage('Title cannot exceed 200 characters'),
   body('description')
-    .trim()
-    .notEmpty()
-    .withMessage('Description is required'),
+    .optional()
+    .trim(),
   body('dateTime')
     .notEmpty()
     .withMessage('dateTime is required')
@@ -25,18 +24,23 @@ const createOpportunityValidator = [
   body('location')
     .trim()
     .notEmpty()
-    .withMessage('Location is required'),
+    .withMessage('location is required'),
   body('requiredVolunteers')
     .notEmpty()
     .withMessage('requiredVolunteers is required')
     .isInt({ min: 1 })
-    .withMessage('requiredVolunteers must be an integer greater than or equal to 1')
+    .withMessage('requiredVolunteers must be an integer greater than or equal to 1'),
+  body('club')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid club ID format'),
+  body('event')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid event ID format')
 ];
 
 const updateOpportunityValidator = [
-  param('id')
-    .isMongoId()
-    .withMessage('Invalid opportunity ID format'),
   body('title')
     .optional()
     .trim()
@@ -46,9 +50,7 @@ const updateOpportunityValidator = [
     .withMessage('Title cannot exceed 200 characters'),
   body('description')
     .optional()
-    .trim()
-    .notEmpty()
-    .withMessage('Description cannot be empty'),
+    .trim(),
   body('dateTime')
     .optional()
     .isISO8601()
@@ -64,51 +66,43 @@ const updateOpportunityValidator = [
     .withMessage('requiredVolunteers must be an integer greater than or equal to 1'),
   body('status')
     .optional()
-    .custom(() => {
-      throw new Error('Status cannot be changed via general update route. Use /api/opportunities/:id/status');
-    })
-];
-
-const updateStatusValidator = [
-  param('id')
+    .isIn(['OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED'])
+    .withMessage('status must be OPEN, CLOSED, CANCELLED, or COMPLETED'),
+  body('club')
+    .optional()
     .isMongoId()
-    .withMessage('Invalid opportunity ID format'),
-  body('status')
-    .notEmpty()
-    .withMessage('Status is required')
-    .isIn(['OPEN', 'CLOSED', 'COMPLETED', 'CANCELLED'])
-    .withMessage('Status must be one of: OPEN, CLOSED, COMPLETED, CANCELLED')
-];
-
-const opportunityIdValidator = [
-  param('id')
+    .withMessage('Invalid club ID format'),
+  body('event')
+    .optional()
     .isMongoId()
-    .withMessage('Invalid opportunity ID format')
+    .withMessage('Invalid event ID format')
 ];
 
 const filterOpportunitiesValidator = [
   query('status')
     .optional()
-    .isIn(['OPEN', 'CLOSED', 'COMPLETED', 'CANCELLED'])
-    .withMessage('Status filter must be OPEN, CLOSED, COMPLETED, or CANCELLED'),
-  query('upcoming')
+    .isIn(['OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED'])
+    .withMessage('Status filter must be OPEN, CLOSED, CANCELLED, or COMPLETED'),
+  query('club')
     .optional()
-    .isBoolean()
-    .withMessage('Upcoming filter must be true or false'),
+    .isMongoId()
+    .withMessage('Invalid club ID format'),
+  query('event')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid event ID format'),
   query('page')
     .optional()
     .isInt({ min: 1 })
-    .withMessage('Page must be a positive integer'),
+    .withMessage('page must be a positive integer'),
   query('limit')
     .optional()
     .isInt({ min: 1, max: 100 })
-    .withMessage('Limit must be between 1 and 100')
+    .withMessage('limit must be between 1 and 100')
 ];
 
 module.exports = {
   createOpportunityValidator,
   updateOpportunityValidator,
-  updateStatusValidator,
-  opportunityIdValidator,
   filterOpportunitiesValidator
 };

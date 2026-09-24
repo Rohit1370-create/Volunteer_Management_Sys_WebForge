@@ -2,60 +2,55 @@ const express = require('express');
 const router = express.Router();
 const {
   getOpportunities,
-  getOpportunity,
+  getOpportunityById,
   createOpportunity,
   updateOpportunity,
-  updateOpportunityStatus,
   deleteOpportunity,
+  registerOpportunity,
   getOpportunityVolunteers,
-  registerForOpportunity
+  exportVolunteersExcel
 } = require('../controllers/opportunityController');
 const {
   createOpportunityValidator,
   updateOpportunityValidator,
-  updateStatusValidator,
-  opportunityIdValidator,
   filterOpportunitiesValidator
 } = require('../validators/opportunityValidators');
-const validate = require('../middleware/validate');
-const { protect, authorize } = require('../middleware/auth');
+const validate = require('../middlewares/validate');
+const validateObjectId = require('../middlewares/validateObjectId');
+const { protect, authorize } = require('../middlewares/auth');
 
-// All opportunity routes require authentication
 router.use(protect);
 
 router
   .route('/')
-  .get(authorize('USER', 'ADMIN'), filterOpportunitiesValidator, validate, getOpportunities)
+  .get(filterOpportunitiesValidator, validate, getOpportunities)
   .post(authorize('ADMIN'), createOpportunityValidator, validate, createOpportunity);
 
 router
   .route('/:id')
-  .get(authorize('USER', 'ADMIN'), opportunityIdValidator, validate, getOpportunity)
-  .patch(authorize('ADMIN'), updateOpportunityValidator, validate, updateOpportunity)
-  .delete(authorize('ADMIN'), opportunityIdValidator, validate, deleteOpportunity);
+  .get(validateObjectId('id'), getOpportunityById)
+  .patch(authorize('ADMIN'), validateObjectId('id'), updateOpportunityValidator, validate, updateOpportunity)
+  .delete(authorize('ADMIN'), validateObjectId('id'), deleteOpportunity);
 
-router.patch(
-  '/:id/status',
-  authorize('ADMIN'),
-  updateStatusValidator,
-  validate,
-  updateOpportunityStatus
+router.post(
+  '/:id/register',
+  authorize('USER'),
+  validateObjectId('id'),
+  registerOpportunity
 );
 
 router.get(
   '/:id/volunteers',
   authorize('ADMIN'),
-  opportunityIdValidator,
-  validate,
+  validateObjectId('id'),
   getOpportunityVolunteers
 );
 
-router.post(
-  '/:id/register',
-  authorize('USER'),
-  opportunityIdValidator,
-  validate,
-  registerForOpportunity
+router.get(
+  '/:id/volunteers/export',
+  authorize('ADMIN'),
+  validateObjectId('id'),
+  exportVolunteersExcel
 );
 
 module.exports = router;

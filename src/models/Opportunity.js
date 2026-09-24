@@ -4,46 +4,56 @@ const opportunitySchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: [true, 'Please provide an opportunity title'],
+      required: [true, 'Opportunity title is required'],
       trim: true,
       maxlength: [200, 'Title cannot exceed 200 characters']
     },
     description: {
       type: String,
-      required: [true, 'Please provide a description'],
-      trim: true
+      trim: true,
+      default: ''
+    },
+    event: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Event',
+      default: null
+    },
+    club: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Club',
+      default: null
     },
     dateTime: {
       type: Date,
-      required: [true, 'Please provide a date and time for the opportunity']
+      required: [true, 'dateTime is required']
     },
     location: {
       type: String,
-      required: [true, 'Please provide a location'],
+      required: [true, 'location is required'],
       trim: true
     },
     requiredVolunteers: {
       type: Number,
-      required: [true, 'Please specify the number of required volunteers'],
-      min: [1, 'Required volunteers must be at least 1']
+      required: [true, 'requiredVolunteers is required'],
+      min: [1, 'requiredVolunteers must be at least 1']
     },
     registeredCount: {
       type: Number,
       default: 0,
-      min: [0, 'Registered count cannot be negative']
+      min: [0, 'registeredCount cannot be negative']
     },
     status: {
       type: String,
       enum: {
-        values: ['OPEN', 'CLOSED', 'COMPLETED', 'CANCELLED'],
-        message: 'Status must be OPEN, CLOSED, COMPLETED, or CANCELLED'
+        values: ['OPEN', 'CLOSED', 'CANCELLED', 'COMPLETED'],
+        message: 'Status must be OPEN, CLOSED, CANCELLED, or COMPLETED'
       },
       default: 'OPEN'
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Opportunity must belong to a creator']
+      required: [true, 'Creator is required']
     }
   },
   {
@@ -53,20 +63,14 @@ const opportunitySchema = new mongoose.Schema(
         delete ret.__v;
         return ret;
       }
-    },
-    toObject: {
-      transform: function (doc, ret) {
-        delete ret.__v;
-        return ret;
-      }
     }
   }
 );
 
-// Indexes for fast lookup and filtering
 opportunitySchema.index({ status: 1 });
 opportunitySchema.index({ dateTime: 1 });
-opportunitySchema.index({ location: 1 });
+opportunitySchema.index({ club: 1 });
+opportunitySchema.index({ event: 1 });
 
 const Opportunity = mongoose.model('Opportunity', opportunitySchema);
 

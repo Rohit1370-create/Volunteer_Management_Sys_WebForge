@@ -5,13 +5,13 @@ const userSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, 'Please provide a name'],
+      required: [true, 'Name is required'],
       trim: true,
       maxlength: [100, 'Name cannot exceed 100 characters']
     },
     email: {
       type: String,
-      required: [true, 'Please provide an email'],
+      required: [true, 'Email is required'],
       unique: true,
       lowercase: true,
       trim: true,
@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      required: [true, 'Please provide a password'],
+      required: [true, 'Password is required'],
       minlength: [6, 'Password must be at least 6 characters long'],
       select: false // Never returned in queries by default
     },
@@ -33,6 +33,31 @@ const userSchema = new mongoose.Schema(
         message: 'Role must be either USER or ADMIN'
       },
       default: 'USER'
+    },
+    phone: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    branch: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    section: {
+      type: String,
+      trim: true,
+      default: null
+    },
+    yearOfStudy: {
+      type: Number,
+      min: 1,
+      max: 5,
+      default: null
+    },
+    isActive: {
+      type: Boolean,
+      default: true
     }
   },
   {
@@ -54,7 +79,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Hash password with bcrypt cost factor 12 before saving
+// Hash password with bcrypt (cost factor 12) in pre-save hook
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     return next();

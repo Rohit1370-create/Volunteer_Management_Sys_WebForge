@@ -5,18 +5,18 @@ const registrationSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Registration must be linked to a user']
+      required: [true, 'User is required']
     },
     opportunity: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Opportunity',
-      required: [true, 'Registration must be linked to an opportunity']
+      required: [true, 'Opportunity is required']
     },
     status: {
       type: String,
       enum: {
-        values: ['REGISTERED', 'WITHDRAWN', 'ATTENDED', 'ABSENT'],
-        message: 'Status must be REGISTERED, WITHDRAWN, ATTENDED, or ABSENT'
+        values: ['REGISTERED', 'WITHDRAWN'],
+        message: 'Status must be REGISTERED or WITHDRAWN'
       },
       default: 'REGISTERED'
     },
@@ -36,18 +36,16 @@ const registrationSchema = new mongoose.Schema(
         delete ret.__v;
         return ret;
       }
-    },
-    toObject: {
-      transform: function (doc, ret) {
-        delete ret.__v;
-        return ret;
-      }
     }
   }
 );
 
-// Compound unique index ensuring a user cannot have duplicate registrations for the same opportunity
-registrationSchema.index({ user: 1, opportunity: 1 }, { unique: true });
+// Partial unique index enforcing at most one active (REGISTERED) registration per user per opportunity
+// Allows multiple past WITHDRAWN rows without index collisions
+registrationSchema.index(
+  { user: 1, opportunity: 1 },
+  { unique: true, partialFilterExpression: { status: 'REGISTERED' } }
+);
 
 const Registration = mongoose.model('Registration', registrationSchema);
 
